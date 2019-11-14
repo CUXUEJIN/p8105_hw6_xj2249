@@ -7,6 +7,7 @@ output: github_document
 
 ```{r setup, include=FALSE}
 library(tidyverse)
+library(modelr)
 
 knitr::opts_chunk$set(
 	echo = TRUE,
@@ -21,10 +22,44 @@ theme_set(theme_minimal() +  theme(plot.title = element_text(hjust = 0.5)) + the
 ```
 
 # Problem1
-read in the "birthweight" dataset 
+## load and clean the data
 ```{r}
+names(bw_df)
 bw_df <- 
-        read_csv("./data/birthweight.csv")
-bw_df
+        read_csv("./data/birthweight.csv") %>% 
+        janitor::clean_names() %>% 
+        mutate(
+                babysex = factor(babysex, labels = c("male","female")),
+                frace = factor(frace, labels = c("White","Black","Asian","Puerto Rican","Other")),
+                malform = factor(malform, labels = c("absent","present")),
+                mrace = factor(mrace, labels = c("White","Black", "Asian", "Puerto Rican"))
+                )
 ```
+
+## construct a regression model for birthweight
+Describe your modeling process:
+As we all know, the sex and the gestational age of the baby will influence the birthweight greatly, so these two will be put into the model definitely. Then, mom's weight gain during pregnancy and pre-pregnancy BMI may also be considered, since 
+from whom baby gain all their nutrition. 
+
+now let's fit the model.
+```{r}
+bw_lm1 <- 
+        bw_df %>% 
+        lm(bwt~ babysex + gaweeks + ppbmi + wtgain, data = .) 
+
+summary(bw_lm1)
+
+bw_df %>% 
+        add_predictions(bw_lm1) %>% 
+        add_residuals(bw_lm1) %>% 
+        ggplot(aes(x = pred, y = resid)) +
+        geom_smooth(se = F,size = 0.5) + 
+        geom_point() +
+        geom_hline(yintercept = 0,col = "red",linetype = "dashed") + 
+        labs( x = "Fitted values", y = "Residuals", title = "Residual vs Fitted Plot")
+        geom_hline(aes(yintercept = ))
+```
+
+
+
 
