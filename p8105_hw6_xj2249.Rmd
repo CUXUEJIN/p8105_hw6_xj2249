@@ -19,10 +19,12 @@ knitr::opts_chunk$set(
 )
 
 theme_set(theme_minimal() +  theme(plot.title = element_text(hjust = 0.5)) + theme(legend.position = "bottom") + theme(legend.title = element_blank()) )
+
+set.seed(1)
 ```
 
 # Problem1
-## load and clean the data
+## load and clean data
 ```{r}
 bw_df <- 
         read_csv("./data/birthweight.csv") %>% 
@@ -35,18 +37,15 @@ bw_df <-
                 )
 ```
 
-## construct a regression model for birthweight
-Describe your modeling process:
-As we all know, the sex and the gestational age of the baby will influence the birthweight greatly, so these two will be put into the model definitely. Then, mom's weight gain during pregnancy and pre-pregnancy BMI may also be considered, since 
-from whom baby gain all their nutrition. 
+## Model1: my model!
+I'd like to put  sex and the gestational age of the baby, mom's weight gain during pregnancy and pre-pregnancy BMI into my model, and the reason is following: In my opinion, the sex and the gestational age of the baby will definitly influence the birthweight, so include them first. Then, mom's weight gain during pregnancy and pre-pregnancy BMI may also be important, since baby gain all their nutrition from moms.
 
-now let's fit the model.
+**Here we go!**
+
 ```{r}
 bw_lm1 <- 
         bw_df %>% 
         lm(bwt~ babysex + gaweeks + ppbmi + wtgain, data = .) 
-
-summary(bw_lm1)
 
 bw_df %>% 
         add_predictions(bw_lm1) %>% 
@@ -59,29 +58,24 @@ bw_df %>%
         geom_hline(aes(yintercept = ))
 ```
 
-## fit new model with length at birth and gestational age as predictors
+## Model2
+Fit model2 with length at birth and gestational age as predictors.
 ```{r}
 bw_lm2 <- 
         bw_df %>% 
         lm(bwt~ blength + gaweeks, data = .) 
-summary(bw_lm2)
-
-
 ```
 
-
-## One using head circumference, length, sex, and all interactions (including the three-way interaction) between these
+## Model3
+Fit model3 with head circumference, length, sex, and all interactions.
 ```{r}
 bw_lm3 <-
         bw_df %>% 
         lm(bwt~ blength*bhead*babysex, data = .) 
-summary(bw_lm3)
 ```
 
-
-
 ## cross validation
-### generate datasets for training and testing
+### generate training and testing datasets
 ```{r}
 cv_df <- 
         crossv_mc(bw_df,100) %>% 
@@ -100,14 +94,13 @@ cross_result <-
                 rmse_lm1 = map2_dbl(.x = lm1, .y = test, ~rmse(.x,.y)),
                 rmse_lm2 = map2_dbl(.x = lm2, .y = test, ~rmse(.x,.y)),
                 rmse_lm3 = map2_dbl(.x = lm3, .y = test, ~rmse(.x,.y))
-        ) %>% 
+                ) %>% 
         select(starts_with("rmse")) %>% 
         pivot_longer(
                 everything(),
                 names_to = "model",
                 values_to = "rmse",
-                names_prefix = "rmse_"
-        ) 
+                names_prefix = "rmse_") 
 
 cross_result %>%
         mutate(model = factor(model)) %>% 
@@ -116,7 +109,91 @@ cross_result %>%
         labs( title = "Model comparison by RMSE")
 ```
 
-Unfortunately and sadly, my model looks pretty awful, with the higher RMSEs.
-Among three models, the third one is the best, with the lowest RMSEs and the second model is in the middle. 
+It breaks my heart! My model looks worst...with much higher RMSEs than other two models. The third one is the best, with the lowest RMSEs and the second model ranks second.  
 
-# 
+# Problem2
+```{r load weather data,echo=F}
+weather_df <- 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+```
+
+## point estimates 
+```{r}
+slr = lm(tmax~tmin, data = weather_df)
+
+point_estimates <- tibble(log_b0_b1 =
+                                  slr %>% 
+                                  broom::tidy() %>% 
+                                  pull(estimate) %>% 
+                                  prod() %>% 
+                                  log() ,
+                          r_squared = slr %>% 
+                                  broom::glance() %>% 
+                                  pull(r.squared) 
+                          )
+
+point_estimates %>%  kableExtra::kable(caption = "point estimates")
+```
+
+## Boostrap!!!
+```{r}
+estimates <-
+        weather_df %>% 
+        bootstrap(100) %>% 
+        mutate(slr = map(.x = strap, ~lm(tmax~tmin, data = .x)),
+               est1 = map(slr,broom::tidy),
+               est2 = map(slr,broom::glance),
+               log_b0_b1 = map_dbl(.x = est1, ~.x %>% pull(estimate) %>% prod %>% log ),
+               r_squared = map_dbl(.x = est2, ~.x %>% pull(r.squared))
+               ) %>% 
+        select(.id,log_b0_b1,r_squared)
+
+```
+
+## plot distribution of estimates
+```{r}
+estimates %>% 
+        ggplot(aes(x = log_b0_b1)) +
+        geom_density() +
+        labs( x = expression("log("~hat(beta)[0]~"*"~hat(beta)[1]~")"),
+              title = expression("Distribution of log("~hat(beta)[0]~"*"~hat(beta)[1]~")"))
+
+estimates %>% 
+        ggplot(aes(x = r_squared)) +
+        geom_density() +
+        labs( x = expression(hat(r)^2),
+              title = expression("Distribution of"~hat(r)^2))
+```
+
+## 95% confidence intervals
+```{r}
+ci <- 
+        estimates %>% 
+        pivot_longer(
+                -.id,
+                names_to = "estimates",
+                values_to = "value"
+        ) %>% 
+        group_by(estimates) %>% 
+        summarise( p2.5 = quantile(value,0.025),
+                   p97.5 = quantile(value,0.975),
+                  se = sd(value)
+        ) %>% 
+        cbind(., point_estimates = t(point_estimates)) %>% 
+        mutate( CI_lower = round(point_estimates -  se * p2.5,digits = 3),
+                CI_upper = round(point_estimates +  se * p97.5,digits = 3),
+                CI = str_c(CI_lower,CI_upper,sep = ",")) 
+
+ci %>%  kableExtra::kable(caption = "95% confidence interval",digits = 3,align = "c")
+```
+
+Therefore, the 95% confidence interval for log_b0_b1 is (`r ci[1,8]`), for r_hat_squared is (`r ci[2,8]`).
