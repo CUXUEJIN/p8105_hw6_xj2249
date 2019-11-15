@@ -24,7 +24,6 @@ theme_set(theme_minimal() +  theme(plot.title = element_text(hjust = 0.5)) + the
 # Problem1
 ## load and clean the data
 ```{r}
-names(bw_df)
 bw_df <- 
         read_csv("./data/birthweight.csv") %>% 
         janitor::clean_names() %>% 
@@ -60,6 +59,64 @@ bw_df %>%
         geom_hline(aes(yintercept = ))
 ```
 
+## fit new model with length at birth and gestational age as predictors
+```{r}
+bw_lm2 <- 
+        bw_df %>% 
+        lm(bwt~ blength + gaweeks, data = .) 
+summary(bw_lm2)
+
+
+```
+
+
+## One using head circumference, length, sex, and all interactions (including the three-way interaction) between these
+```{r}
+bw_lm3 <-
+        bw_df %>% 
+        lm(bwt~ blength*bhead*babysex, data = .) 
+summary(bw_lm3)
+```
 
 
 
+## cross validation
+### generate datasets for training and testing
+```{r}
+cv_df <- 
+        crossv_mc(bw_df,100) %>% 
+        mutate(train = map(train,as_tibble),
+               test = map(test,as_tibble))
+
+```
+
+### let's fit models and assess predition accuracy
+```{r}
+cross_result <-
+        cv_df %>% 
+        mutate( lm1 =  map(.x = train,~lm(bwt~ babysex + gaweeks + ppbmi + wtgain, data = .x)),
+                lm2 =  map(.x = train,~lm(bwt~ blength + gaweeks, data = .x)),
+                lm3 =  map(.x = train,~lm(bwt~ blength*bhead*babysex, data = .x)),
+                rmse_lm1 = map2_dbl(.x = lm1, .y = test, ~rmse(.x,.y)),
+                rmse_lm2 = map2_dbl(.x = lm2, .y = test, ~rmse(.x,.y)),
+                rmse_lm3 = map2_dbl(.x = lm3, .y = test, ~rmse(.x,.y))
+        ) %>% 
+        select(starts_with("rmse")) %>% 
+        pivot_longer(
+                everything(),
+                names_to = "model",
+                values_to = "rmse",
+                names_prefix = "rmse_"
+        ) 
+
+cross_result %>%
+        mutate(model = factor(model)) %>% 
+        ggplot(aes(x = model, y = rmse,fill = model)) +
+        geom_violin() +
+        labs( title = "Model comparison by RMSE")
+```
+
+Unfortunately and sadly, my model looks pretty awful, with the higher RMSEs.
+Among three models, the third one is the best, with the lowest RMSEs and the second model is in the middle. 
+
+# 
